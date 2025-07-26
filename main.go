@@ -45,6 +45,30 @@ func NewWallet() (*Wallet, error) {
 	}, nil
 }
 
+func RecoverWallet(mnemonic string) (*Wallet, error) {
+	if !bip39.IsMnemonicValid(mnemonic) {
+		return nil, fmt.Errorf("invalid mnemonic")
+	}
+
+	seed := bip39.NewSeed(mnemonic, "")
+	masterKey, _ := btcec.PrivKeyFromBytes(seed[:32])
+
+	wif, err := btcutil.NewWIF(masterKey, &chaincfg.MainNetParams, true)
+	if err != nil {
+		return nil, err
+	}
+
+	address, err := btcutil.NewAddressPubKey(wif.PrivKey.PubKey().SerializeCompressed(), &chaincfg.MainNetParams)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Wallet{
+		Mnemonic: mnemonic,
+		Address:  address.EncodeAddress(),
+	}, nil
+}
+
 func main() {
 	wallet, err := NewWallet()
 	if err != nil {
