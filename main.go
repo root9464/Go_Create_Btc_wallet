@@ -7,74 +7,148 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/tyler-smith/go-bip39"
 )
 
-type Wallet struct {
-	Mnemonic string
-	Address  string
-}
-
-func NewWallet() (*Wallet, error) {
+func NewWallet() (string, string, *btcec.PrivateKey, error) {
 	entropy := make([]byte, 32)
 	if _, err := rand.Read(entropy); err != nil {
-		return nil, err
+		return "", "", nil, err
 	}
 
 	mnemonic, err := bip39.NewMnemonic(entropy)
 	if err != nil {
-		return nil, err
+		return "", "", nil, err
 	}
 
 	seed := bip39.NewSeed(mnemonic, "")
-	masterKey, _ := btcec.PrivKeyFromBytes(seed[:32])
+	privKey, _ := btcec.PrivKeyFromBytes(seed[:32])
 
-	wif, err := btcutil.NewWIF(masterKey, &chaincfg.MainNetParams, true)
+	wif, err := btcutil.NewWIF(privKey, &chaincfg.MainNetParams, true)
 	if err != nil {
-		return nil, err
+		return "", "", nil, err
 	}
 
 	address, err := btcutil.NewAddressPubKey(wif.PrivKey.PubKey().SerializeCompressed(), &chaincfg.MainNetParams)
 	if err != nil {
-		return nil, err
+		return "", "", nil, err
 	}
 
-	return &Wallet{
-		Mnemonic: mnemonic,
-		Address:  address.EncodeAddress(),
-	}, nil
+	return mnemonic, address.EncodeAddress(), privKey, nil
 }
 
-func RecoverWallet(mnemonic string) (*Wallet, error) {
+func CreateAndSignTx(privKey *btcec.PrivateKey, fromAddress, toAddress string, amount int64, prevTxID string, prevOutIndex uint32) (*wire.MsgTx, error) {
+	tx := wire.NewMsgTx(wire.TxVersion)
+
+	recipientAddr, err := btcutil.DecodeAddress(toAddress, &chaincfg.MainNetParams)
+	if err != nil {
+		return nil, err
+	}
+
+	recipientScript, err := txscript.PayToAddrScript(recipientAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	tx.AddTxOut(wire.NewTxOut(amount, recipientScript))
+
+	hash, err := chainhash.NewHashFromStr(prevTxID)
+	if err != nil {
+		return nil, err
+	}
+
+	txIn := wire.NewTxIn(wire.NewOutPoint(hash, prevOutIndex), nil, nil)
+	tx.AddTxIn(txIn)
+
+	senderAddr, err := btcutil.DecodeAddress(fromAddress, &chaincfg.MainNetParams)
+	if err != nil {
+		return nil, err
+	}
+
+	byres, _ := txscript.PayToAddrScript(senderAddr)
+
+	sigScript, err := txscript.SignatureScript(
+		tx,
+		0,
+		byres,
+		txscript.SigHashAll,
+		privKey,
+		true,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tx.TxIn[0].SignatureScript = sigScript
+
+	vm, err := txscript.NewEngine(
+		byres,
+		tx,
+		0,
+		txscript.StandardVerifyFlags,
+		nil,
+		nil,
+		0,
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := vm.Execute(); err != nil {
+		return nil, err
+	}
+
+	return tx, nil
+}
+
+func ValidateWallet(mnemonic, address string) error {
 	if !bip39.IsMnemonicValid(mnemonic) {
-		return nil, fmt.Errorf("invalid mnemonic")
+		return fmt.Errorf("invalid mnemonic phrase")
 	}
 
 	seed := bip39.NewSeed(mnemonic, "")
-	masterKey, _ := btcec.PrivKeyFromBytes(seed[:32])
+	privKey, _ := btcec.PrivKeyFromBytes(seed[:32])
 
-	wif, err := btcutil.NewWIF(masterKey, &chaincfg.MainNetParams, true)
+	wif, err := btcutil.NewWIF(privKey, &chaincfg.MainNetParams, true)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to create WIF: %v", err)
 	}
 
-	address, err := btcutil.NewAddressPubKey(wif.PrivKey.PubKey().SerializeCompressed(), &chaincfg.MainNetParams)
+	derivedAddress, err := btcutil.NewAddressPubKey(wif.PrivKey.PubKey().SerializeCompressed(), &chaincfg.MainNetParams)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to derive address: %v", err)
 	}
 
-	return &Wallet{
-		Mnemonic: mnemonic,
-		Address:  address.EncodeAddress(),
-	}, nil
+	if derivedAddress.EncodeAddress() != address {
+		return fmt.Errorf("address does not match mnemonic")
+	}
+
+	_, err = btcutil.DecodeAddress(address, &chaincfg.MainNetParams)
+	if err != nil {
+		return fmt.Errorf("invalid address format: %v", err)
+	}
+
+	return nil
 }
 
 func main() {
-	wallet, err := NewWallet()
+	mnemonic, address, _, err := NewWallet()
 	if err != nil {
-		panic(err)
+		fmt.Println("Error:", err)
+		return
 	}
 
-	fmt.Println("Mnemonic:", wallet.Mnemonic)
-	fmt.Println("Address:", wallet.Address)
+	fmt.Println("Mnemonic:", mnemonic)
+	fmt.Println("Address:", address)
+	err = ValidateWallet(mnemonic, address)
+	if err != nil {
+		fmt.Println("Wallet validation failed:", err)
+		return
+	}
+
+	fmt.Println("Wallet validated successfully")
 }
