@@ -152,3 +152,29 @@ func main() {
 
 	fmt.Println("Wallet validated successfully")
 }
+
+// слав это чтобы проверить транзу, создать транзу, подписать ее но не отправлять в сеть бтк
+// func main() {
+// 	mnemonic, address, privKey, err := generateMnemonicAndAddress()
+// 	if err != nil {
+// 		fmt.Println("Error:", err)
+// 		return
+// 	}
+
+// 	fmt.Println("Mnemonic:", mnemonic)
+// 	fmt.Println("Address:", address)
+
+// 	recipient := "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
+// 	amount := int64(100000)
+// 	prevTxID := "0000000000000000000000000000000000000000000000000000000000000000"
+// 	prevOutIndex := uint32(0)
+
+// 	tx, err := createAndSignTx(privKey, address, recipient, amount, prevTxID, prevOutIndex)
+// 	if err != nil {
+// 		fmt.Println("Error signing transaction:", err)
+// 		return
+// 	}
+
+// 	fmt.Println("Transaction signed successfully")
+// 	fmt.Printf("TxID: %s\n", tx.TxHash().String())
+// }
